@@ -1,0 +1,280 @@
+#!/bin/bash
+
+# Tim Leavey
+# PURE BASH program
+
+# I know it's ugly, and I'm sorry.
+# This needs heavy refactoring.
+# First time using bash-only.
+# On the plus side, no temp files are left behind. :)
+
+# Error function
+# Takes message and outputs it to stderr
+echoerror() {
+	echo "$@" 1>&2
+	exit 64
+}
+
+trap "rm -f $inputFile; rm -f $tempCol; rm -f $outputFile; echo 'cleaning up files'; exit 1" INT HUP TERM
+
+# Dimensions of a matrix function
+dims () {
+	rows=0
+	cols=0
+	# The first if statement is checking for the format of:
+	# cat m2 | ./matrix dims
+	if [[ $1 == "" ]];
+		then
+		while read -r oneLine;
+		do
+			# Count the rows
+			((rows=rows+1))
+			for num in $oneLine
+			do
+				# Count the columns
+				((cols=cols+1))
+			done
+		done
+	else
+		# The else statement deals with the format of:
+		# ./matrix dims test_file
+		while read -r oneLine;
+		do
+			# Counts the rows
+			((rows=rows+1))
+			for num in $oneLine
+			do
+				# Counts the columns
+				((cols=cols+1))
+			done
+		done < $1
+	fi
+	((cols=cols/rows))
+	# Save result in stdout so it's usable
+	local myresult="$rows $cols"
+	echo "$myresult"
+}
+
+if [[ $1 != "dims" ]] && [[ $1 != "add" ]] && [[ $1 != "transpose" ]] && [[ $1 != "mean" ]] && [[ $1 != "multiply" ]];
+	then
+	echoerror "Bad command!"
+fi
+
+# DIMENSIONS aka dims
+if [[ $1 == "dims" ]];
+	then
+	# Error checking to make sure there's no 3rd argument
+	if [[ $3 != "" ]];
+		then
+		echoerror "too many args to matrix dims"
+	# Error checking to make sure second file exists
+	elif [[ "$2" != "" ]] && [[ ! -e "$2" ]]
+		then
+			echoerror "That file doesn't exist!"
+	else
+		# If no error with command, calls dim function
+		result=$(dims $2)
+		echo $result
+		exit 0
+	fi
+	echoerror "Something went wrong!"
+fi
+
+# Addition of matrices aka add
+if [[ $1 == "add" ]];
+	then
+	# If there's a third file, then error.
+	if [[ $4 != "" ]];
+		then
+			echoerror "too many args to matrix add"
+	# If the first file doesn't exist, then error.
+	elif [[ "$2" != "" ]] && [[ ! -e "$2" ]];
+		then
+			echoerror "That file doesn't exist!"
+	# If the second file doesn't exist, then error.		
+	elif [[ "$3" != "" ]] && [[ ! -e "$3" ]]; 
+		then
+			echoerror "That file doesn't exist!"
+	# If there's no second file in command, then error.
+	elif [[ $3 == "" ]];
+		then echoerror "Not enough arguments!"
+	else
+		# If no errors, then perform add.
+		# Get dimensions of both matrices with dims function
+		file1dims=$(dims $2)
+		file2dims=$(dims $3)
+		tmpOUTPUT="tmpOUTPUT$$"
+		# Check if the dimensions of both matrices are the same
+		if [[ $file1dims == $file2dims ]];
+			then
+				oneSum=0
+				# Read input from both files
+				while read line1 <&2 && read line2 <&3
+				do
+					# Set the lines of input as arrays instead of one string
+					line1=($line1)
+					line2=($line2)
+					# This for loop adds the element from each array/file together and prints it to the screen
+					for ((i=0;i<${#line1[@]};++i))
+					do
+						((oneSum=${line1[i]} + ${line2[i]}))
+						printf "%d\t" $oneSum >> $tmpOUTPUT
+					done
+					# Add a newline to the end of each row
+					truncate -s-1 $tmpOUTPUT
+					echo >> $tmpOUTPUT
+				done 2<$2 3<$3 
+				cat $tmpOUTPUT
+				rm -f $tmpOUTPUT
+				exit 0
+		else
+			echoerror "Not the same dimensions!"
+		fi
+	fi
+fi
+
+#Transpose
+# I used this site as a source:
+# https://stackoverflow.com/questions/1729824/an-efficient-way-to-transpose-a-file-in-bash
+if [[ $1 == "transpose" ]];
+	then
+	if [ $# -gt 2 ];
+		then
+			echoerror "too many args to matrix transpose"
+	# Error checking to make sure second file exists
+	elif [[ "$2" != "" ]] && [[ ! -r "$2" ]]
+		then
+			echoerror "That file doesn't exist!"
+	else
+		tempOutputFile="tempOutput$$"
+		# Declare an array
+		declare -a array=( )
+		placement=0
+		if [[ $2 == "" ]];
+			then
+				while read oneLine
+				do
+					# Turn line of input into array type
+					oneLine=($oneLine)
+					# Set COLS length to the legth of the line of input/array
+					COLS=${#oneLine[@]}
+					# This for loop fills the empty array with the numbers from input
+					for ((i=0; i<${#oneLine[@]}; i++))
+					do
+						array[$placement]=${oneLine[$i]}
+						((placement++))
+					done
+				done
+		else
+			while read oneLine
+			do
+				# Turn line of input into array type
+				oneLine=($oneLine)
+				# Set COLS length to the legth of the line of input/array
+				COLS=${#oneLine[@]}
+				# This for loop fills the empty array with the numbers from input
+				for ((i=0; i<${#oneLine[@]}; i++))
+				do
+					array[$placement]=${oneLine[$i]}
+					((placement++))
+				done
+			done < $2
+		fi
+		# This for loop restricts how many numbers to print by setting the length to COLS
+		for (( row=0; row<COLS;row++))
+		do
+			# This for loop prints the elements of the array to the screen
+			for ((i=row;i<${#array[@]};i+=COLS));
+			do
+				printf "%s\t" ${array[$i]} >> $tempOutputFile
+			done
+			# Adds a new line after each row
+			truncate -s-1 $tempOutputFile  
+			printf "\n" >> $tempOutputFile
+		done
+		cat $tempOutputFile
+		rm -f $tempOutputFile
+		exit 0
+	fi
+fi
+
+# Mean of a matrix
+if [[ $1 == "mean" ]];
+	then
+	if [[ $3 != "" ]];
+		then
+			echoerror "too many args to matrix transpose"
+	# Error checking to make sure second file exists
+	elif [[ "$2" != "" ]] && [[ ! -e "$2" ]]
+		then
+			echoerror "That file doesn't exist!"
+	else
+		# Declare an array
+		tempOutFile="tempOut$$"
+		declare -a array=( )
+		placement=0
+		if [[ $2 == "" ]];
+			then
+				# This loop handles input from stdin
+				while read oneLine
+				do
+					# Turn line of input into array type
+					oneLine=($oneLine)
+					# Set COLS length to the legth of the line of input/array
+					COLS=${#oneLine[@]}
+					# This for loop fills the empty array with the numbers from input
+					for ((i=0; i<${#oneLine[@]}; i++))
+					do
+						array[$placement]=${oneLine[$i]}
+						((placement++))
+					done
+				done
+		else
+			# This loop handles input from arg $2
+			while read oneLine
+			do
+				# Turn line of input into array type
+				oneLine=($oneLine)
+				# Set COLS length to the legth of the line of input/array
+				COLS=${#oneLine[@]}
+				# This for loop fills the empty array with the numbers from input
+				for ((i=0; i<${#oneLine[@]}; i++))
+				do
+					array[$placement]=${oneLine[$i]}
+					((placement++))
+				done
+			done < $2
+		fi
+		# After input has been read in from proper place:
+		# This for loop restricts how many numbers to print by setting the length to COLS
+		oneSum=0
+		mean=0
+		for (( row=0; row<COLS;row++))
+		do
+			((count=${#array[@]}/${#oneLine[@]}))
+			# echo "COUNT: $count"
+			# This for loop prints the elements of the array to the screen
+			for ((i=row;i<${#array[@]};i+=COLS));
+			do
+				((oneSum=$oneSum+${array[$i]}))
+			done
+			# echo "oneSum: $oneSum"
+			(( mean=($oneSum + ($count/2)*( ($oneSum>0)*2-1 )) / $count ))
+			# Prints the value to the file
+			printf "%d\t" $mean >> $tempOutFile
+			oneSum=0
+			# Adds a tab after each number
+			# printf "\t" >> $tempOutFile
+		done
+		# Truncates the last tab at the end of the row
+		truncate -s-1 $tempOutFile
+		# Adds a 'newline' to the end of each row
+		echo >> $tempOutFile
+		# Prints contents of file to the screen
+		cat $tempOutFile
+		rm -f $tempOutFile
+		exit 0
+	fi
+fi
+
+exit 1
